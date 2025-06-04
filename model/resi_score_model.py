@@ -158,8 +158,83 @@ class ResiLevelTensorProductScoreModel(torch.nn.Module):
                 
         self.conv_layers = nn.ModuleList(conv_layers)
         self.resi_final_tp = o3.FullyConnectedTensorProduct(out_irreps, out_irreps, '1x1o + 1x1e' if args.parity else '1x1o', internal_weights=True)
+
+        # --- NOESY Specific Initializations ---
+        self.casp13_atom_map = {
+            'H': 0, 'HB': 1, 'HG1': 2, 'HG2': 3, 'HD1': 4, 'HD2': 5, 'HE2': 6,
+            # Add other relevant CASP13 atom types as needed
+        } # TODO: Make this more comprehensive or pass as arg
+        self.num_noesy_atom_types = len(self.casp13_atom_map)
+
+        # TODO: Make these configurable via args
+        self.noesy_emb_dim = args.noesy_emb_dim if hasattr(args, 'noesy_emb_dim') else 32  # Embedding dim for NOESY distance
+        self.noesy_atom_emb_dim = args.noesy_atom_emb_dim if hasattr(args, 'noesy_atom_emb_dim') else 16 # Embedding dim for atom types
+        self.noesy_feature_dim = args.noesy_feature_dim if hasattr(args, 'noesy_feature_dim') else 64 # Final NOESY feature dim per contact
+
+        self.noesy_distance_expansion = GaussianSmearing(0.0, 10.0, self.noesy_emb_dim) # Assuming NOESY distances are within 0-10 Angstroms
+        self.noesy_atom_from_embedding = nn.Embedding(self.num_noesy_atom_types, self.noesy_atom_emb_dim)
+        self.noesy_atom_to_embedding = nn.Embedding(self.num_noesy_atom_types, self.noesy_atom_emb_dim)
         
-    def forward(self, data, **kwargs):
+        # Linear layer to project concatenated NOESY features (dist_emb + atom_from_emb + atom_to_emb)
+        self.noesy_feature_projection = nn.Linear(self.noesy_emb_dim + 2 * self.noesy_atom_emb_dim, self.noesy_feature_dim)
+
+        # Update resi_edge_embedding input dimension
+        # Original: args.t_emb_dim + args.radius_emb_dim + args.resi_pos_emb_dim + 2*lm_edge_dim
+        # New: original + self.noesy_feature_dim
+        original_edge_dim = args.t_emb_dim + args.radius_emb_dim + args.resi_pos_emb_dim + 2*lm_edge_dim
+        self.resi_edge_embedding = nn.Sequential(
+            nn.Linear(original_edge_dim + self.noesy_feature_dim, args.resi_ns),
+            nn.ReLU(),
+            nn.Linear(args.resi_ns, args.resi_ns),
+            nn.ReLU(),
+            nn.Linear(args.resi_ns, args.resi_ns)
+        )
+        # --- End NOESY Specific Initializations ---
+
+    def _get_atom_idx(self, atom_name):
+        return self.casp13_atom_map.get(atom_name, self.casp13_atom_map.get('H')) # Default to 'H' if not found
+
+    def _process_noesy_data(self, noesy_data, num_residues, device):
+        """
+        Processes raw NOESY data into a feature tensor for edge augmentation.
+        noesy_data: list of [res_idx_from, res_idx_to, peak_id, distance, atom_name_from, atom_name_to]
+        Returns a sparse tensor representing NOESY features on a (num_residues, num_residues) grid.
+        """
+        if noesy_data is None or len(noesy_data) == 0:
+            # Return a zero tensor of appropriate shape for concatenation if no NOESY data
+            return torch.zeros((num_residues, num_residues, self.noesy_feature_dim), device=device)
+
+        # Assuming noesy_data is a list of lists/tuples on CPU, convert to tensor
+        # Columns: res_idx_from, res_idx_to, peak_id, distance, atom_name_from, atom_name_to
+        # We need: res_idx_from, res_idx_to, distance, atom_idx_from, atom_idx_to
+
+        res_indices_from = torch.tensor([int(n[0]) for n in noesy_data], dtype=torch.long, device=device)
+        res_indices_to = torch.tensor([int(n[1]) for n in noesy_data], dtype=torch.long, device=device)
+        distances = torch.tensor([float(n[3]) for n in noesy_data], dtype=torch.float, device=device)
+        atom_indices_from = torch.tensor([self._get_atom_idx(n[4]) for n in noesy_data], dtype=torch.long, device=device)
+        atom_indices_to = torch.tensor([self._get_atom_idx(n[5]) for n in noesy_data], dtype=torch.long, device=device)
+
+        dist_emb = self.noesy_distance_expansion(distances)
+        atom_from_emb = self.noesy_atom_from_embedding(atom_indices_from)
+        atom_to_emb = self.noesy_atom_to_embedding(atom_indices_to)
+
+        concatenated_features = torch.cat([dist_emb, atom_from_emb, atom_to_emb], dim=-1)
+        projected_features = self.noesy_feature_projection(concatenated_features) # (num_contacts, noesy_feature_dim)
+
+        # Create a sparse representation for NOESY features on a (N, N) residue grid
+        # This allows summing features if multiple NOESY contacts exist for the same residue pair
+        noesy_edge_features_sparse = torch.sparse_coo_tensor(
+            indices=torch.stack([res_indices_from, res_indices_to]),
+            values=projected_features,
+            size=(num_residues, num_residues, self.noesy_feature_dim),
+            device=device
+        )
+        # Convert to dense. This might be memory intensive for very large numbers of residues.
+        # Consider alternatives if num_residues is very large.
+        return noesy_edge_features_sparse.to_dense()
+
+
+    def forward(self, data, noesy_data=None, **kwargs): # Added noesy_data
         
         data['resi'].x = self.resi_node_norm(data['resi'].node_attr)
         data['resi'].edge_attr = self.resi_edge_norm(data['resi'].edge_attr_) # problem
@@ -167,6 +242,27 @@ class ResiLevelTensorProductScoreModel(torch.nn.Module):
         
         ### BUILD RESI CONV GRAPH
         node_attr, edge_index, edge_attr, edge_sh = self.build_conv_graph(data, key='resi', knn=False, edge_pos_emb=True)
+
+        # --- Process and Integrate NOESY Data ---
+        num_residues = data['resi'].x.shape[0] # Number of nodes (residues)
+        device = data['resi'].x.device
+
+        processed_noesy_features_matrix = self._process_noesy_data(noesy_data, num_residues, device)
+
+        # Augment edge_attr with NOESY features
+        # edge_index gives (src, dst) pairs. Use these to lookup features in processed_noesy_features_matrix.
+        src_nodes, dst_nodes = edge_index[0], edge_index[1]
+
+        # Gather NOESY features for existing graph edges
+        # For an edge (u, v), we can take features from processed_noesy_features_matrix[u, v]
+        # and potentially also from processed_noesy_features_matrix[v, u] if NOESY data is symmetric or directional.
+        # Assuming NOESY data implies undirected constraint, so sum/average features from (u,v) and (v,u) if they exist.
+        # For simplicity, just take (u,v) for now.
+        noesy_features_for_edges = processed_noesy_features_matrix[src_nodes, dst_nodes]
+
+        # Concatenate NOESY features to the original edge_attr
+        edge_attr = torch.cat([edge_attr, noesy_features_for_edges], dim=-1)
+        # --- End NOESY Data Integration ---
         
         node_attr = self.resi_node_embedding(node_attr)
         edge_attr = self.resi_edge_embedding(edge_attr)

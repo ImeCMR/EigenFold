@@ -29,6 +29,7 @@ parser.add_argument('--inf_cutoff', type=int, default=None)
 parser.add_argument('--embeddings_dir', type=str, default=None)
 parser.add_argument('--pdb_dir', type=str, default=None)
 parser.add_argument('--embeddings_key', type=str, default=None, choices=['name', 'reference'])
+parser.add_argument('--noesy_input_path', type=str, default=None, help="Path to the NOESY data file. Format: resFrom resTo peakID distance atomFrom atomTo")
 
 inf_args = parser.parse_args()
 
@@ -86,9 +87,58 @@ if inf_args.pdb_dir: args.pdb_dir = inf_args.pdb_dir
 if inf_args.embeddings_dir: args.embeddings_dir = inf_args.embeddings_dir
 if inf_args.embeddings_key: args.embeddings_key = inf_args.embeddings_key
 args.inference_mode = True
+
+def load_and_parse_noesy_data(noesy_file_path):
+    """
+    Loads and parses NOESY data from a file.
+    Converts residue indices from 1-based to 0-based.
+    """
+    if not noesy_file_path or not os.path.exists(noesy_file_path):
+        logger.info("NOESY input path not provided or file does not exist. Proceeding without NOESY data.")
+        return None
     
+    parsed_noesy_data = []
+    try:
+        with open(noesy_file_path, 'r') as f:
+            for line_num, line in enumerate(f):
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split()
+                if len(parts) != 6:
+                    logger.warning(f"Skipping malformed NOESY data line {line_num+1} in {noesy_file_path}: {line}. Expected 6 parts.")
+                    continue
+
+                try:
+                    # Convert residue indices from 1-based to 0-based
+                    res_from = int(parts[0]) - 1
+                    res_to = int(parts[1]) - 1
+                    peak_id = int(parts[2]) # peakID can remain as is
+                    distance = float(parts[3])
+                    atom_from = parts[4]
+                    atom_to = parts[5]
+
+                    if res_from < 0 or res_to < 0:
+                        logger.warning(f"Skipping NOESY data line {line_num+1} with non-positive residue index after 0-based conversion: {line}")
+                        continue
+
+                    parsed_noesy_data.append([res_from, res_to, peak_id, distance, atom_from, atom_to])
+                except ValueError as e:
+                    logger.warning(f"Skipping NOESY data line {line_num+1} due to parsing error ({e}): {line}")
+                    continue
+        logger.info(f"Successfully loaded and parsed {len(parsed_noesy_data)} NOESY contacts from {noesy_file_path}.")
+        if not parsed_noesy_data: # If file was empty or all lines were skipped
+            return None
+        return parsed_noesy_data
+    except Exception as e:
+        logger.error(f"Failed to read or parse NOESY file {noesy_file_path}: {e}")
+        return None
+
 def main():
     
+    # Load NOESY data if provided
+    noesy_data = load_and_parse_noesy_data(inf_args.noesy_input_path)
+
     logger.info(f'Loading splits {args.splits}')
     try: splits = pd.read_csv(args.splits).set_index('path')   
     except: splits = pd.read_csv(args.splits).set_index('name')   
@@ -103,7 +153,12 @@ def main():
     ep = state_dict['epoch']
     
     val_loader = get_loader(args, None, splits, mode=inf_args.split_key, shuffle=False)
-    samples, log = inference_epoch(args, model, val_loader.dataset, device=device, pdbs=True, elbo=inf_args.elbo)
+    # Pass noesy_data to inference_epoch.
+    # Note: inference_epoch will need to be modified to accept and use this.
+    # If NOESY data is specific per item in dataset, this global noesy_data variable won't directly work.
+    # For now, we assume inference_epoch can handle a global NOESY data list for the items it processes,
+    # or this script is intended for single PDB inference where noesy_data applies to that PDB.
+    samples, log = inference_epoch(args, model, val_loader.dataset, device=device, pdbs=True, elbo=inf_args.elbo, noesy_data=noesy_data)
     
     means = {key: np.mean(log[key]) for key in log if key != 'path'}
     logger.info(f"Inference epoch {ep}: len {len(log['rmsd'])} MEANS {means}")

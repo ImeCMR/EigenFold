@@ -83,7 +83,13 @@ def parse_train_args():
     parser.add_argument('--lm_edge_dim', type=int, default=128)
     parser.add_argument('--lm_node_dim', type=int, default=256)
     parser.add_argument('--no_edge_embs', action='store_true', default=False)
-    
+
+    # NOESY data related arguments
+    parser.add_argument('--use_noesy_data', action='store_true', default=False, help='Enable usage of NOESY data during training if available in dataset.')
+    parser.add_argument('--noesy_emb_dim', type=int, default=32, help='Embedding dimension for NOESY distances.')
+    parser.add_argument('--noesy_atom_emb_dim', type=int, default=16, help='Embedding dimension for NOESY atom types.')
+    parser.add_argument('--noesy_feature_dim', type=int, default=64, help='Final feature dimension for a NOESY contact.')
+
     args = parser.parse_args()
     args.time = int(time.time()*1000)
     args.commit = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()

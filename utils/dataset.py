@@ -21,6 +21,9 @@ class ResidueDataset(Dataset):
         self.lm_edge_dim = args.lm_edge_dim
         self.lm_node_dim = args.lm_node_dim
         self.args = args
+        self.use_noesy_data = args.use_noesy_data if hasattr(args, 'use_noesy_data') else False
+        if self.use_noesy_data:
+            logger.info("NOESY data usage is enabled for the dataset.")
         
     @lru_cache(maxsize=None)
     def get_sde(self, i):
@@ -83,7 +86,37 @@ class ResidueDataset(Dataset):
         edge_repr = torch.tensor(edge_repr)
         src, dst = data['resi'].edge_index[0], data['resi'].edge_index[1]
         data['resi'].edge_attr_ = torch.cat([edge_repr[src, dst], edge_repr[dst, src]], -1)
-        
+
+        if self.use_noesy_data:
+            # Attempt to load pre-generated NOESY data.
+            # This assumes NOESY data is stored in a file named like the embedding file but with a '.noesy.pt' suffix.
+            # e.g., if embedding is /path/to/embed.omegafold_num_recycling.3.npz
+            # NOESY data would be /path/to/embed.noesy.pt
+            noesy_data_path = embeddings_path.replace(self.embeddings_suffix, 'noesy.pt') # A bit of a guess for the naming scheme
+            if os.path.exists(noesy_data_path):
+                try:
+                    loaded_noesy_data = torch.load(noesy_data_path)
+                    # Ensure it's in the expected list-of-lists format, not a tensor from _process_noesy_data
+                    if isinstance(loaded_noesy_data, list):
+                        data.noesy_data = loaded_noesy_data
+                        if idx < 5: # Log for a few samples to confirm loading
+                            logger.info(f"Loaded {len(data.noesy_data)} NOESY contacts for {row.name} from {noesy_data_path}")
+                    else:
+                        logger.warning(f"NOESY data at {noesy_data_path} is not in expected list format. Skipping for {row.name}")
+                        data.noesy_data = None
+                except Exception as e:
+                    logger.warning(f"Error loading NOESY data from {noesy_data_path} for {row.name}: {e}. Skipping NOESY for this item.")
+                    data.noesy_data = None
+            else:
+                # Log only for the first few misses to avoid spamming
+                if idx < 5 and not hasattr(self, '_logged_noesy_missing'): self._logged_noesy_missing = set()
+                if idx < 5 and row.name not in self._logged_noesy_missing:
+                    logger.info(f"No pre-generated NOESY data file found at {noesy_data_path} for {row.name}. Proceeding without NOESY for this item.")
+                    self._logged_noesy_missing.add(row.name)
+                data.noesy_data = None
+        else:
+            data.noesy_data = None
+
         return data
     
 def get_loader(args, pyg_data, splits, mode='train', shuffle=True):

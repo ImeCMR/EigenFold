@@ -7,7 +7,7 @@ from .logging import get_logger
 
 logger = get_logger(__name__)
 
-def inference_epoch(args, model, dataset, device='cpu', rank=0, world_size=1, pdbs=False, elbo=None):
+def inference_epoch(args, model, dataset, device='cpu', rank=0, world_size=1, pdbs=False, elbo=None, noesy_data=None): # Added noesy_data
     model.eval()
     samples = []
     N = min(len(dataset), args.inf_mols)
@@ -21,7 +21,8 @@ def inference_epoch(args, model, dataset, device='cpu', rank=0, world_size=1, pd
         molseq = data_.info.seqres
         sched = get_schedule(args, data_.resi_sde)
         sched_full = get_schedule(args, data_.resi_sde, full=True)
-        score_fn = get_score_fn(args, model, data_, key='resi', device=device)
+        # Pass noesy_data to get_score_fn
+        score_fn = get_score_fn(args, model, data_, key='resi', device=device, noesy_data=noesy_data)
         
         for j in range(num_samples):        
             try:
@@ -60,7 +61,7 @@ def inference_epoch(args, model, dataset, device='cpu', rank=0, world_size=1, pd
         
     return datas, log
 
-def get_score_fn(args, model, data, key='resi', device='cpu'):
+def get_score_fn(args, model, data, key='resi', device='cpu', noesy_data=None): # Added noesy_data
     data = copy.deepcopy(data); data.to(device); sde = data.sde
     @torch.no_grad()
     def score_fn(Y, t, k):
@@ -68,7 +69,8 @@ def get_score_fn(args, model, data, key='resi', device='cpu'):
         data[key].node_t = torch.ones(data.resi_sde.N, device=device) * t
         data.score_norm = sde.score_norm(t, k, adj=True)
         data['sidechain'].pos = Y[data['resi'].num_nodes:]
-        return model.enn(data)
+        # Pass noesy_data to the model's forward call (model.enn)
+        return model.enn(data, noesy_data=noesy_data)
     return score_fn
 
 def get_schedule(args, sde, full=False):

@@ -32,10 +32,11 @@ def epoch(args, model, loader, optimizer=None, scheduler=None, device='cpu', pri
     for i, data in enumerate(loader):
         data = data.to(device)
         try:
-            if args.data_skip and data.skip:
-                logger.warning(f"Skipping batch")
+            if args.data_skip and hasattr(data, 'skip') and data.skip: # hasattr check for safety
+                logger.warning(f"Skipping batch based on data.skip flag")
                 continue
-            data, loss, base_loss = iter_(model, data, optimizer)
+            # Pass args to iter_
+            data, loss, base_loss = iter_(args, model, data, optimizer)
             if scheduler: scheduler.step()
             
             with torch.no_grad():
@@ -68,10 +69,23 @@ def epoch(args, model, loader, optimizer=None, scheduler=None, device='cpu', pri
     return log
 
 
-def iter_(model, data, optimizer):
+def iter_(args, model, data, optimizer): # Added args
     if optimizer is not None:
         model.zero_grad()
-        pred = model(data)
+        # Extract noesy_data from batch if use_noesy_data is True
+        noesy_data_for_batch = None
+        if args.use_noesy_data and hasattr(data, 'noesy_data'):
+            noesy_data_for_batch = data.noesy_data
+            # Basic check: if noesy_data_for_batch is a list and its length matches batch size
+            if isinstance(noesy_data_for_batch, list) and hasattr(data, 'num_graphs') and len(noesy_data_for_batch) != data.num_graphs:
+                logger.warning(f"Batch size ({data.num_graphs}) and noesy_data list length ({len(noesy_data_for_batch)}) mismatch. Setting NOESY to None for this batch.")
+                noesy_data_for_batch = None
+            elif not isinstance(noesy_data_for_batch, list) and noesy_data_for_batch is not None: # Should be a list of lists or None
+                logger.warning(f"data.noesy_data is not a list or None. Type: {type(noesy_data_for_batch)}. Setting NOESY to None for this batch.")
+                noesy_data_for_batch = None
+
+
+        pred = model(data, noesy_data=noesy_data_for_batch)
         loss, base_loss = loss_func(data)
         loss.backward()
         if not np.isfinite(loss.item()):
@@ -86,7 +100,18 @@ def iter_(model, data, optimizer):
                 logger.warning("Nonfinite grad, skipping")
     else: 
         with torch.no_grad():
-            pred = model(data)
+            # Extract noesy_data from batch if use_noesy_data is True (for validation/eval)
+            noesy_data_for_batch = None
+            if args.use_noesy_data and hasattr(data, 'noesy_data'):
+                noesy_data_for_batch = data.noesy_data
+                if isinstance(noesy_data_for_batch, list) and hasattr(data, 'num_graphs') and len(noesy_data_for_batch) != data.num_graphs:
+                    logger.warning(f"Validation: Batch size ({data.num_graphs}) and noesy_data list length ({len(noesy_data_for_batch)}) mismatch. Setting NOESY to None.")
+                    noesy_data_for_batch = None
+                elif not isinstance(noesy_data_for_batch, list) and noesy_data_for_batch is not None:
+                    logger.warning(f"Validation: data.noesy_data is not a list or None. Type: {type(noesy_data_for_batch)}. Setting NOESY to None.")
+                    noesy_data_for_batch = None
+
+            pred = model(data, noesy_data=noesy_data_for_batch)
             loss, base_loss = loss_func(data)
     return data, loss, base_loss
         
