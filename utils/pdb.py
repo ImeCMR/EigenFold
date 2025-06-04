@@ -476,16 +476,22 @@ def generate_noesy_data(pdb_path, distance_cutoff=5.0, noise_fraction=0.1, false
             # Output format: residueFrom residueTo peakID distance atomFrom atomTo
             # Ensure res_num1 < res_num2 or some consistent ordering if needed, but not specified.
             # For now, using the order as found/generated.
-            formatted_string = (
-                f"{peak_data['res_num1']} {peak_data['res_num2']} {peak_id} "
-                f"{peak_data['distance']:.2f} {peak_data['atom_name1']} {peak_data['atom_name2']}"
-            )
-            formatted_noesy_strings.append(formatted_string)
+
+            # Changed to return list of lists/tuples as per preprocess_noesy.py requirements
+            contact_entry = [
+                peak_data['res_num1'],
+                peak_data['res_num2'],
+                peak_id,
+                round(peak_data['distance'], 2), # Round distance to 2 decimal places
+                peak_data['atom_name1'],
+                peak_data['atom_name2']
+            ]
+            formatted_noesy_strings.append(contact_entry)
 
         if not formatted_noesy_strings:
             logger.info(f"No NOESY data (true or false) generated for {pdb_path}.")
         else:
-            logger.info(f"Successfully generated {len(formatted_noesy_strings)} total NOESY peaks for {pdb_path} ({len(true_contacts)} true, {len(false_positives)} false).")
+            logger.info(f"Successfully generated {len(formatted_noesy_strings)} total NOESY peak lists for {pdb_path} ({len(true_contacts)} true, {len(false_positives)} false).")
 
         return formatted_noesy_strings
 
