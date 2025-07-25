@@ -160,9 +160,12 @@ class ResiLevelTensorProductScoreModel(torch.nn.Module):
         self.resi_final_tp = o3.FullyConnectedTensorProduct(out_irreps, out_irreps, '1x1o + 1x1e' if args.parity else '1x1o', internal_weights=True)
         
     def forward(self, data, **kwargs):
-        
-        data['resi'].x = self.resi_node_norm(data['resi'].node_attr)
-        data['resi'].edge_attr = self.resi_edge_norm(data['resi'].edge_attr_) # problem
+        if self.args.dataset_type == 'noesy':
+            data['resi'].x = data['resi'].x
+            data['resi'].edge_attr = data['resi'].edge_attr
+        else:
+            data['resi'].x = self.resi_node_norm(data['resi'].node_attr)
+            data['resi'].edge_attr = self.resi_edge_norm(data['resi'].edge_attr_) # problem
             
         
         ### BUILD RESI CONV GRAPH

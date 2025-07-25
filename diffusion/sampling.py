@@ -17,13 +17,18 @@ class ForwardDiffusionKernel(BaseTransform):
         self.args = args
         
     def __call__(self, data):
-        if data.skip: return data
-        sde = data.sde; rsde = data.resi_sde
+        if hasattr(data, 'skip') and data.skip: return data
+        sde = data.sde
         
         step = np.random.rand()
         if step > 2/(1+np.exp(abs(self.skew))):
             step = np.random.beta(2, 1) if self.skew > 0 else np.random.beta(1, 2)
             
+        if self.args.dataset_type == 'noesy':
+            rsde = sde
+        else:
+            rsde = data.resi_sde
+
         rmsd_max = np.interp(self.Hf, rsde.hs[::-1], rsde.rmsds[::-1])
         if self.rmsd_max > 0:
             rmsd_max = min(rmsd_max, self.rmsd_max)
@@ -44,7 +49,7 @@ class ForwardDiffusionKernel(BaseTransform):
         data.score_norm = sde.score_norm(t, k, adj=True)
         data[self.key].node_t = torch.ones(num_nodes) * t
         
-        pos = data[self.key].pos.numpy()
+        pos = data[self.key].x.numpy()
         
         pos, score = sde.sample(t, pos, center=self.center, score=True, k=k, adj=True)
         pos, score = torch.from_numpy(pos), torch.from_numpy(score)

@@ -56,6 +56,8 @@ def parse_train_args():
     parser.add_argument('--sh_lmax', type=int, default=2)
     parser.add_argument('--order', type=int, choices=[1, 2], default=1)
     parser.add_argument('--t_emb_dim', type=int, default=32)
+    parser.add_argument('--noesy_dir', type=str, default = 'data/noesy')
+    parser.add_argument('--dataset_type', type=str, default = 'default')
     parser.add_argument('--t_emb_type', type=str, choices=['sinusoidal', 'fourier'], default='sinusoidal')
     parser.add_argument('--radius_emb_type', type=str, choices=['sinusoidal', 'gaussian'], default='gaussian')
     parser.add_argument('--radius_emb_dim', type=int, default=50)

@@ -3,11 +3,68 @@ import numpy as np
 import torch, os
 from diffusion.sampling import ForwardDiffusionKernel
 from diffusion import PolymerSDE
-from torch_geometric.data import Dataset, HeteroData
+from torch.utils.data import Dataset, ConcatDataset
 from torch_geometric.loader import DataLoader
+from torch_geometric.data import HeteroData
+from Bio.PDB import PDBParser
 from .logging import get_logger
 logger = get_logger(__name__)
 from .pdb import pdb_to_npy
+
+class NOESYDataset(Dataset):
+    def __init__(self, args, npz_dir, pdb_dir, splits, mode='train',
+                 transform=None, pre_transform=None, pre_filter=None):
+        self.args = args
+        self.npz_dir = npz_dir
+        self.pdb_dir = pdb_dir
+        self.mode = mode
+        self.df = splits[splits.type == mode]
+        self.sde = PolymerSDE(args)
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        name = self.df.index[idx]
+        noesy_data = np.load(os.path.join(self.npz_dir, f"{name}.npz"))['backbone_contacts']
+
+        # Create a PyG data object
+        data = HeteroData()
+        data.name = name
+
+        # Add NOESY data to the object
+        edge_index = torch.from_numpy(noesy_data[['res1_num', 'res2_num']].T).long()
+        edge_attr = torch.from_numpy(noesy_data[['distance', 'peak_type']]).float()
+
+        # Load PDB and add coordinates
+        parser = PDBParser(QUIET=True)
+        pdb_path = os.path.join(self.pdb_dir, f"{name}.pdb")
+        structure = parser.get_structure(name, pdb_path)
+        coords = []
+        res_ids = []
+        for residue in structure.get_residues():
+            if 'CA' in residue:
+                coords.append(residue['CA'].get_coord())
+                res_ids.append(residue.get_id()[1])
+
+        # Map residue ids to indices
+        res_id_map = {res_id: i for i, res_id in enumerate(res_ids)}
+
+        src = [res_id_map[r] for r in edge_index[0].tolist()]
+        dst = [res_id_map[r] for r in edge_index[1].tolist()]
+
+        data['resi'].edge_index = torch.tensor([src, dst])
+        data['resi'].edge_attr = edge_attr
+        data['resi'].x = torch.from_numpy(np.array(coords)).float()
+        data['resi'].num_nodes = len(coords)
+
+        sde = PolymerSDE(N=len(coords), a=self.args.sde_a, b=self.args.sde_b)
+        sde.make_schedule(Hf=self.args.train_Hf, step=self.args.inf_step, tmin=self.args.train_tmin)
+        data.sde = sde
+
+        data = self.sde.add_noise_to_data(data)
+
+        return data
 
 class ResidueDataset(Dataset):
     def __init__(self, args, split, **kwargs):
@@ -104,12 +161,15 @@ def get_loader(args, pyg_data, splits, mode='train', shuffle=True):
     
     if args.limit_mols:
         split = split[:args.limit_mols]
-    if 'seqlen' not in split.columns:
-        split['seqlen'] = [len(s) for s in split.seqres]
-    split = split[split.seqlen <= args.max_len]
     
-    transform = ForwardDiffusionKernel(args)
-    dataset = ResidueDataset(args, split, transform=transform)
+    if args.dataset_type == 'noesy':
+        dataset = NOESYDataset(args, args.noesy_dir, args.pdb_dir, split)
+    else:
+        if 'seqlen' not in split.columns:
+            split['seqlen'] = [len(s) for s in split.seqres]
+        split = split[split.seqlen <= args.max_len]
+        transform = ForwardDiffusionKernel(args)
+        dataset = ResidueDataset(args, split, transform=transform)
         
     logger.info(f"Initialized {mode if mode else ''} loader with {len(dataset)} entries")
     loader = DataLoader(dataset=dataset,

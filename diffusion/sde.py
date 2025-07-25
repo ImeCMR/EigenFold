@@ -5,9 +5,10 @@ from .schedule import EntropySchedule
 
 class HarmonicSDE:
     def __init__(self, N=None, edges=[], antiedges=[], a=1, b=0.3,
-                 J=None, diagonalize=True):
+                 J=None, diagonalize=True, args=None):
         self.use_cuda = False
         self.l = 1
+        self.args = args
         if not diagonalize: return
         if J is not None:
             J = J
@@ -15,15 +16,28 @@ class HarmonicSDE:
             self.P = P.astype(FLOAT_TYPE) 
             self.N = self.D.size
             return
-        J = np.zeros((N, N))
-        for i, j in edges:
-            J[i,i] += a
-            J[j,j] += a
-            J[i,j] = J[j,i] = -a
-        for i, j in antiedges:
-            J[i,i] -= b
-            J[j,j] -= b
-            J[i,j] = J[j,i] = b
+
+        if self.args is not None and self.args.dataset_type == 'noesy':
+            J = np.zeros((N,N))
+            for i, j, dist, peak_type in edges:
+                if peak_type == 1: # True peak
+                    J[i,i] += a
+                    J[j,j] += a
+                    J[i,j] = J[j,i] = -a / (1 + dist)
+                else: # False peak
+                    J[i,i] -= b
+                    J[j,j] -= b
+                    J[i,j] = J[j,i] = b / (1 + dist)
+        else:
+            J = np.zeros((N, N))
+            for i, j in edges:
+                J[i,i] += a
+                J[j,j] += a
+                J[i,j] = J[j,i] = -a
+            for i, j in antiedges:
+                J[i,i] -= b
+                J[j,j] -= b
+                J[i,j] = J[j,i] = b
         self.D, P = np.linalg.eigh(J)
         self.N = N
         self.P = P.astype(FLOAT_TYPE)

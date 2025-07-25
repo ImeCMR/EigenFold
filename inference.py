@@ -1,10 +1,12 @@
 import argparse
+import pandas as pd
 parser = argparse.ArgumentParser()
 parser.add_argument('--model_dir', type=str, required=True)
 parser.add_argument('--ckpt', type=str, required=True)
 
-parser.add_argument('--splits', type=str, required=True)
+parser.add_argument('--splits', type=str, default=None)
 parser.add_argument('--split_key', type=str, default=None)
+parser.add_argument('--noesy_txt', type=str, default=None)
 parser.add_argument('--inf_mols', type=int, default=1000)
 parser.add_argument('--wandb', type=str, default=None)
 parser.add_argument('--num_workers', type=int, default=None)
@@ -87,12 +89,47 @@ if inf_args.embeddings_dir: args.embeddings_dir = inf_args.embeddings_dir
 if inf_args.embeddings_key: args.embeddings_key = inf_args.embeddings_key
 args.inference_mode = True
     
+from torch_geometric.data import HeteroData
+from diffusion import PolymerSDE
+from Bio.PDB import PDBParser
+
 def main():
     
-    logger.info(f'Loading splits {args.splits}')
-    try: splits = pd.read_csv(args.splits).set_index('path')   
-    except: splits = pd.read_csv(args.splits).set_index('name')   
-    
+    if inf_args.noesy_txt:
+        args.dataset_type = 'noesy'
+        # Load NOESY data from text file
+        noesy_df = pd.read_csv(inf_args.noesy_txt, delim_whitespace=True, names=['res1_num', 'res2_num', 'distance', 'atom1_name', 'atom2_name'])
+
+        # For now, let's assume a single chain and create a dummy PDB to get the number of residues.
+        # A more robust solution would be to get the sequence length from the user.
+        num_residues = max(noesy_df['res1_num'].max(), noesy_df['res2_num'].max())
+
+        data = HeteroData()
+        data.name = os.path.basename(inf_args.noesy_txt).split('.')[0]
+
+        edge_index = torch.from_numpy(noesy_df[['res1_num', 'res2_num']].to_numpy().T).long() - 1
+        edge_attr = torch.from_numpy(noesy_df[['distance']].to_numpy()).float()
+
+        # Add dummy peak_type
+        edge_attr = torch.cat([edge_attr, torch.ones(edge_attr.shape[0], 1)], dim=1)
+
+        data['resi'].edge_index = edge_index
+        data['resi'].edge_attr = edge_attr
+        data['resi'].x = torch.randn(num_residues, 3) # Initialize with random coordinates
+        data['resi'].num_nodes = num_residues
+
+        sde = PolymerSDE(N=num_residues, a=args.sde_a, b=args.sde_b, args=args)
+        sde.make_schedule(Hf=args.train_Hf, step=args.inf_step, tmin=args.train_tmin)
+        data.sde = sde
+
+        dataset = [data]
+    else:
+        logger.info(f'Loading splits {args.splits}')
+        try: splits = pd.read_csv(args.splits).set_index('path')
+        except: splits = pd.read_csv(args.splits).set_index('name')
+        val_loader = get_loader(args, None, splits, mode=inf_args.split_key, shuffle=False)
+        dataset = val_loader.dataset
+
     logger.info("Constructing model")
     model = get_model(args).to(device)
     ckpt = os.path.join(inf_args.model_dir, inf_args.ckpt)
@@ -102,13 +139,16 @@ def main():
     model.load_state_dict(state_dict['model'], strict=True)
     ep = state_dict['epoch']
     
-    val_loader = get_loader(args, None, splits, mode=inf_args.split_key, shuffle=False)
-    samples, log = inference_epoch(args, model, val_loader.dataset, device=device, pdbs=True, elbo=inf_args.elbo)
+    samples, log = inference_epoch(args, model, dataset, device=device, pdbs=True, elbo=inf_args.elbo)
     
     means = {key: np.mean(log[key]) for key in log if key != 'path'}
     logger.info(f"Inference epoch {ep}: len {len(log['rmsd'])} MEANS {means}")
     
-    inf_name = f"{args.splits.split('/')[-1]}.ep{ep}.num{args.num_samples}.step{args.inf_step}.alpha{args.alpha}.beta{args.beta}"
+    if inf_args.noesy_txt:
+        inf_name = f"{data.name}.ep{ep}.num{args.num_samples}.step{args.inf_step}.alpha{args.alpha}.beta{args.beta}"
+    else:
+        inf_name = f"{args.splits.split('/')[-1]}.ep{ep}.num{args.num_samples}.step{args.inf_step}.alpha{args.alpha}.beta{args.beta}"
+
     if inf_args.inf_step != inf_args.elbo_step: inf_name += f".elbo{args.elbo_step}"
     csv_path = os.path.join(inf_args.model_dir, f'{inf_name}.csv')
     pd.DataFrame(log).set_index('path').to_csv(csv_path)
@@ -116,9 +156,10 @@ def main():
     
     if not os.path.exists(os.path.join(inf_args.model_dir, inf_name)): os.mkdir(os.path.join(inf_args.model_dir, inf_name))
     for samp in samples:
-        samp.pdb.write(os.path.join(inf_args.model_dir, inf_name, samp.path.split('/')[-1] + f".{samp.copy}.anim.pdb"), reverse=True)
+        path = samp.path if hasattr(samp, 'path') else samp.name
+        samp.pdb.write(os.path.join(inf_args.model_dir, inf_name, path.split('/')[-1] + f".{samp.copy}.anim.pdb"), reverse=True)
         samp.pdb.clear().add(samp.Y).write(
-            os.path.join(inf_args.model_dir, inf_name, samp.path.split('/')[-1] + f".{samp.copy}.pdb"))
+            os.path.join(inf_args.model_dir, inf_name, path.split('/')[-1] + f".{samp.copy}.pdb"))
         
 if __name__ == '__main__':
     main()
