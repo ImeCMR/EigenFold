@@ -6,9 +6,23 @@ import numpy as np
 from .logging import get_logger
 logger = get_logger(__name__)
 
-def loss_func(data):
+def loss_func(data, noesy_weight=0.1):
     loss = ((data.score - data.pred)**2 / data.score_norm[:,None]**2).mean()
-    base_loss = (data.score**2 / data.score_norm[:,None]**2).mean()    
+    base_loss = (data.score**2 / data.score_norm[:,None]**2).mean()
+
+    if 'noesy' in data and 'contacts' in data['noesy']:
+        noesy_contacts = data['noesy'].contacts
+        pos = data['resi'].pos
+
+        res1_num = noesy_contacts['res1_num']
+        res2_num = noesy_contacts['res2_num']
+
+        dist_pred = torch.norm(pos[res1_num] - pos[res2_num], dim=-1)
+        dist_true = noesy_contacts['distance']
+
+        noesy_loss = ((dist_pred - dist_true)**2).mean()
+        loss += noesy_weight * noesy_loss
+
     return loss, base_loss
 
 def get_scheduler(args, optimizer):
@@ -35,7 +49,7 @@ def epoch(args, model, loader, optimizer=None, scheduler=None, device='cpu', pri
             if args.data_skip and data.skip:
                 logger.warning(f"Skipping batch")
                 continue
-            data, loss, base_loss = iter_(model, data, optimizer)
+            data, loss, base_loss = iter_(model, data, optimizer, args.noesy_weight)
             if scheduler: scheduler.step()
             
             with torch.no_grad():
@@ -68,14 +82,14 @@ def epoch(args, model, loader, optimizer=None, scheduler=None, device='cpu', pri
     return log
 
 
-def iter_(model, data, optimizer):
+def iter_(model, data, optimizer, noesy_weight=0.1):
     if optimizer is not None:
         model.zero_grad()
         pred = model(data)
-        loss, base_loss = loss_func(data)
+        loss, base_loss = loss_func(data, noesy_weight)
         loss.backward()
         if not np.isfinite(loss.item()):
-            logger.warning(f"Nonfinite loss {loss.item()}; skipping")  
+            logger.warning(f"Nonfinite loss {loss.item()}; skipping")
         elif loss.item() > 10.0:
             logger.warning(f"Large loss {loss.item()}; skipping")
         else:
@@ -84,10 +98,10 @@ def iter_(model, data, optimizer):
                 optimizer.step()
             except:
                 logger.warning("Nonfinite grad, skipping")
-    else: 
+    else:
         with torch.no_grad():
             pred = model(data)
-            loss, base_loss = loss_func(data)
+            loss, base_loss = loss_func(data, noesy_weight)
     return data, loss, base_loss
         
 

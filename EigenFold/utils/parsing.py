@@ -83,6 +83,7 @@ def parse_train_args():
     parser.add_argument('--lm_edge_dim', type=int, default=128)
     parser.add_argument('--lm_node_dim', type=int, default=256)
     parser.add_argument('--no_edge_embs', action='store_true', default=False)
+    parser.add_argument('--noesy_weight', type=float, default=0.1)
     
     args = parser.parse_args()
     args.time = int(time.time()*1000)

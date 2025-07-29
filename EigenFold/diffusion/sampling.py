@@ -53,46 +53,65 @@ class ForwardDiffusionKernel(BaseTransform):
         data.score = score
         return data
             
-def reverse_sample(args, score_func, sde, sched, pdb=None, Y=None, device='cpu', tqdm_=True, ode=False, logF=None):
-    sde = copy.deepcopy(sde); 
+def reverse_sample(args, score_func, sde, sched, pdb=None, Y=None, device='cpu', tqdm_=True, ode=False, logF=None, noesy_restraints=None, noesy_weight=1.0):
+    sde = copy.deepcopy(sde)
     if 'cuda' in str(device): sde.cuda()
-    
-    if Y is None: Y = sde.sample(sched.tmax)
-    else: Y = torch.tensor(Y).float().to(device)
+
+    if Y is None:
+        Y = sde.sample(sched.tmax)
+    else:
+        Y = torch.tensor(Y).float().to(device)
     Y = sde.project(Y, sched.ks[0], center=False)
-    
+    Y.requires_grad = True
+
     if pdb: pdb.add(Y)
-    
+
     steps = tqdm.trange(sched.N) if tqdm_ else range(sched.N)
     kold = sched.ks[0]
     for i in steps:
 
         t, dt, k, dk = sched.ts[i], sched.dt[i], sched.ks[i], sched.dk[i]
         k = (sde.D * t < args.train_cutoff).sum() - 1
-        dk = k - kold; kold = k
+        dk = k - kold
+        kold = k
         if dk:
             new_eigens = torch.zeros(sde.N, dtype=bool, device=device)
-            new_eigens[k-dk+1:k+1] = True
+            new_eigens[k - dk + 1:k + 1] = True
             Y = Y + sde.inject(t, new_eigens)
-            
-        
+
         score = score_func(Y, t, k)
-        
-        dY = - (1 + sched.alpha*sched.beta) * (sde.P*sde.D)@(sde.P.T@Y) * dt / 2
-        dY = dY + (1 + sched.alpha*sched.beta/2) * score * dt 
-        
+
+        dY = - (1 + sched.alpha * sched.beta) * (sde.P * sde.D) @ (sde.P.T @ Y) * dt / 2
+        dY = dY + (1 + sched.alpha * sched.beta / 2) * score * dt
+
+        if noesy_restraints is not None:
+            noesy_energy = 0
+            for restraint in noesy_restraints:
+                res1_num = restraint['res1_num']
+                res2_num = restraint['res2_num']
+                dist_pred = torch.norm(Y[res1_num] - Y[res2_num], dim=-1)
+                dist_true = restraint['distance']
+                noesy_energy += (dist_pred - dist_true) ** 2
+
+            noesy_grad = torch.autograd.grad(noesy_energy, Y)[0]
+            dY -= noesy_weight * noesy_grad * dt
+
+
         if logF is not None:
-            Y.grad = None; Y.requires_grad = True
-            logF_ = logF(Y); logF_.sum().backward()
-            dY = dY + sched.alpha/2 * Y.grad * dt
-            Y.grad = None; Y.requires_grad = False
-        
-        dY = dY + np.sqrt(dt*(1+sched.alpha)) * torch.randn(*Y.shape, device=device)
+            Y.grad = None
+            Y.requires_grad = True
+            logF_ = logF(Y)
+            logF_.sum().backward()
+            dY = dY + sched.alpha / 2 * Y.grad * dt
+            Y.grad = None
+            Y.requires_grad = False
+
+        dY = dY + np.sqrt(dt * (1 + sched.alpha)) * torch.randn(*Y.shape, device=device)
         Y = Y + sde.project(dY, k, center=False)
-        
+
         if pdb: pdb.add(Y)
-    
-    return Y.cpu().numpy()
+
+    return Y.cpu().detach().numpy()
 
 @torch.no_grad()
 def logp(Y, score_fn, sde, sched, pdb=None, device='cpu', tqdm_=True, seed=None):

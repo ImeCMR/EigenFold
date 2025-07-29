@@ -58,6 +58,14 @@ class ResidueDataset(Dataset):
             pos, mask = ret
             pos[~mask,0] = data.sde.conditional(mask, pos[mask,0])
             data['resi'].pos = torch.tensor(pos[:,0]).float()
+
+        noesy_path = os.path.join('noesy_data/output', row.name + '.npz')
+        if os.path.exists(noesy_path):
+            try:
+                noesy_data = np.load(noesy_path)['noesy_data']
+                data['noesy'].contacts = torch.tensor(noesy_data)
+            except Exception as e:
+                logger.warning(f"Error loading NOESY data from {noesy_path}: {e}")
         
         embeddings_name = row.__getattr__(self.args.embeddings_key)
         embeddings_path = os.path.join(self.args.embeddings_dir, embeddings_name[:2], embeddings_name) + '.' + self.embeddings_suffix

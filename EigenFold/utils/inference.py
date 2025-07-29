@@ -7,7 +7,7 @@ from .logging import get_logger
 
 logger = get_logger(__name__)
 
-def inference_epoch(args, model, dataset, device='cpu', rank=0, world_size=1, pdbs=False, elbo=None):
+def inference_epoch(args, model, dataset, device='cpu', rank=0, world_size=1, pdbs=False, elbo=None, noesy_restraints=None):
     model.eval()
     samples = []
     N = min(len(dataset), args.inf_mols)
@@ -28,7 +28,7 @@ def inference_epoch(args, model, dataset, device='cpu', rank=0, world_size=1, pd
                 pdb = PDBFile(molseq) if pdbs else None
                 data = copy.deepcopy(data_)
                 data.Y = reverse_sample(args, score_fn, sde, sched, device=device, Y=None,
-                            pdb=pdb, tqdm_=not args.wandb, ode=args.ode)
+                            pdb=pdb, tqdm_=not args.wandb, ode=args.ode, noesy_restraints=noesy_restraints)
                 
                 data.elbo_Y = logp(data.Y, score_fn, sde, sched_full, device=device, tqdm_=False) if elbo else np.nan
                 
