@@ -47,7 +47,7 @@ class ResidueDataset(Dataset):
         data['resi'].num_nodes = row.seqlen
         data['resi'].edge_index = get_dense_edges(row.seqlen)
         data.resi_sde = data.sde = self.get_sde(row.seqlen)
-        data.path = pdb_path = os.path.join(self.args.pdb_dir, row.name[:2], row.name); data.info = row
+        data.path = pdb_path = os.path.join(self.args.pdb_dir, row.name); data.info = row
         
         
         ret = pdb_to_npy(pdb_path, seqres=row.seqres)

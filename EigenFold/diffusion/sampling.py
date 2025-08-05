@@ -109,7 +109,7 @@ def reverse_sample(args, score_func, sde, sched, pdb=None, Y=None, device='cpu',
         dY = dY + np.sqrt(dt * (1 + sched.alpha)) * torch.randn(*Y.shape, device=device)
         Y = Y + sde.project(dY, k, center=False)
 
-        if pdb: pdb.add(Y)
+        if pdb: pdb.add(Y.detach())
 
     return Y.cpu().detach().numpy()
 
