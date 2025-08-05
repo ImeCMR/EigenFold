@@ -28,8 +28,9 @@ parser.add_argument('--inf_cutoff', type=int, default=None)
 
 parser.add_argument('--embeddings_dir', type=str, default=None)
 parser.add_argument('--pdb_dir', type=str, default=None)
-parser.add_argument('--embeddings_key', type=str, default=None, choices=['name', 'reference'])
+parser.add_argument('--embeddings_key', type=str, default='name', choices=['name', 'reference'])
 parser.add_argument('--noesy_restraints', type=str, default=None, help='Path to NOESY restraints file (.txt)')
+parser.add_argument('--embeddings_path', type=str, default=None, help='Path to embeddings file (.npz)')
 
 inf_args = parser.parse_args()
 
@@ -86,6 +87,7 @@ if inf_args.inf_cutoff:
 if inf_args.pdb_dir: args.pdb_dir = inf_args.pdb_dir
 if inf_args.embeddings_dir: args.embeddings_dir = inf_args.embeddings_dir
 if inf_args.embeddings_key: args.embeddings_key = inf_args.embeddings_key
+if inf_args.embeddings_path: args.embeddings_path = inf_args.embeddings_path
 args.inference_mode = True
 
 def main():
@@ -99,7 +101,8 @@ def main():
     ckpt = os.path.join(inf_args.model_dir, inf_args.ckpt)
 
     logger.info(f'Loading weights from {ckpt}')
-    state_dict = torch.load(ckpt, map_location=torch.device('cpu'))
+    torch.serialization.add_safe_globals([np.core.multiarray.scalar])
+    state_dict = torch.load(ckpt, map_location=torch.device('cpu'), weights_only=False)
     model.load_state_dict(state_dict['model'], strict=True)
     ep = state_dict['epoch']
 

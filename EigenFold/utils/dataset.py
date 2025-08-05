@@ -66,9 +66,15 @@ class ResidueDataset(Dataset):
                 data['noesy'].contacts = torch.tensor(noesy_data)
             except Exception as e:
                 logger.warning(f"Error loading NOESY data from {noesy_path}: {e}")
+
+        if self.args.embeddings_path:
+            embeddings_path = self.args.embeddings_path
+        else:
+            embeddings_name = row.__getattr__(self.args.embeddings_key)
+            embeddings_path = os.path.join(self.args.embeddings_dir, embeddings_name + '.' + self.embeddings_suffix)
         
-        embeddings_name = row.__getattr__(self.args.embeddings_key)
-        embeddings_path = os.path.join(self.args.embeddings_dir, embeddings_name[:2], embeddings_name) + '.' + self.embeddings_suffix
+        logger.info(f"Embeddings path: {embeddings_path}")
+
         if not os.path.exists(embeddings_path):
             logger.warning(f"No LM embeddings at {embeddings_path}")
             return self.null_data(data)
