@@ -6,9 +6,27 @@ import numpy as np
 from .logging import get_logger
 logger = get_logger(__name__)
 
-def loss_func(data):
-    loss = ((data.score - data.pred)**2 / data.score_norm[:,None]**2).mean()
+def loss_func(data, args):
+    # Main score matching loss
+    score_loss = ((data.score - data.pred)**2 / data.score_norm[:,None]**2).mean()
     base_loss = (data.score**2 / data.score_norm[:,None]**2).mean()    
+
+    # NOESY peak classification loss
+    noesy_loss = 0.0
+    if hasattr(data, 'noesy_pred_logits'):
+        # The true labels are the 6th element in the noesy_peaks tensor
+        true_labels = data.noesy_peaks[:, 5]
+
+        # Ensure we only calculate loss on the peaks that were found in the graph
+        # The model's forward pass should ensure noesy_pred_logits only contains predictions for existing peaks
+        if data.noesy_pred_logits.shape[0] == true_labels.shape[0]:
+             noesy_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+                data.noesy_pred_logits, true_labels
+            )
+
+    # Total loss
+    loss = score_loss + args.noesy_loss_weight * noesy_loss
+
     return loss, base_loss
 
 def get_scheduler(args, optimizer):
@@ -35,7 +53,7 @@ def epoch(args, model, loader, optimizer=None, scheduler=None, device='cpu', pri
             if args.data_skip and data.skip:
                 logger.warning(f"Skipping batch")
                 continue
-            data, loss, base_loss = iter_(model, data, optimizer)
+            data, loss, base_loss = iter_(model, data, optimizer, args)
             if scheduler: scheduler.step()
             
             with torch.no_grad():
@@ -68,11 +86,11 @@ def epoch(args, model, loader, optimizer=None, scheduler=None, device='cpu', pri
     return log
 
 
-def iter_(model, data, optimizer):
+def iter_(model, data, optimizer, args):
     if optimizer is not None:
         model.zero_grad()
         pred = model(data)
-        loss, base_loss = loss_func(data)
+        loss, base_loss = loss_func(data, args)
         loss.backward()
         if not np.isfinite(loss.item()):
             logger.warning(f"Nonfinite loss {loss.item()}; skipping")  
@@ -87,7 +105,7 @@ def iter_(model, data, optimizer):
     else: 
         with torch.no_grad():
             pred = model(data)
-            loss, base_loss = loss_func(data)
+            loss, base_loss = loss_func(data, args)
     return data, loss, base_loss
         
 

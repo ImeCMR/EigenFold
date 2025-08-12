@@ -97,7 +97,7 @@ class ResiLevelTensorProductScoreModel(torch.nn.Module):
         )
         lm_edge_dim = args.lm_edge_dim 
         self.resi_edge_embedding = nn.Sequential(
-            nn.Linear(args.t_emb_dim + args.radius_emb_dim + args.resi_pos_emb_dim + 2*lm_edge_dim, args.resi_ns), # fix
+            nn.Linear(args.t_emb_dim + args.radius_emb_dim + args.resi_pos_emb_dim + 2*lm_edge_dim + args.noesy_feat_dim, args.resi_ns), # fix
             nn.ReLU(),
             nn.Linear(args.resi_ns, args.resi_ns),
             nn.ReLU(),
@@ -159,6 +159,12 @@ class ResiLevelTensorProductScoreModel(torch.nn.Module):
         self.conv_layers = nn.ModuleList(conv_layers)
         self.resi_final_tp = o3.FullyConnectedTensorProduct(out_irreps, out_irreps, '1x1o + 1x1e' if args.parity else '1x1o', internal_weights=True)
         
+        self.noesy_classification_head = nn.Sequential(
+            nn.Linear(args.resi_ns, args.resi_ns // 2),
+            nn.ReLU(),
+            nn.Linear(args.resi_ns // 2, 1)
+        )
+
     def forward(self, data, **kwargs):
         
         data['resi'].x = self.resi_node_norm(data['resi'].node_attr)
@@ -189,6 +195,29 @@ class ResiLevelTensorProductScoreModel(torch.nn.Module):
         data['resi'].pred = resi_out
         
         data.pred = resi_out
+
+        # --- NOESY classification prediction ---
+        if hasattr(data, 'noesy_peaks') and data.noesy_peaks.shape[0] > 0:
+            # Get the edges that correspond to the NOESY peaks
+            noesy_peaks = data.noesy_peaks
+            res_i, res_j = noesy_peaks[:, 0].long(), noesy_peaks[:, 1].long()
+
+            # Create a map from edge tuple to its index in edge_index
+            edge_map = {tuple(e.tolist()): i for i, e in enumerate(edge_index.T)}
+
+            noesy_edge_indices = []
+            for i in range(len(res_i)):
+                # This is slow, but necessary for unordered edges
+                edge_tuple = tuple(sorted((res_i[i].item(), res_j[i].item())))
+                if edge_tuple in edge_map:
+                    noesy_edge_indices.append(edge_map[edge_tuple])
+
+            if noesy_edge_indices:
+                # Select the final edge attributes for the peaks
+                final_edge_attr = edge_attr[noesy_edge_indices]
+                # Predict logits
+                data.noesy_pred_logits = self.noesy_classification_head(final_edge_attr).squeeze(-1)
+
         return resi_out
     
     
@@ -212,6 +241,22 @@ class ResiLevelTensorProductScoreModel(torch.nn.Module):
             edge_length_emb = self.distance_expansion(edge_vec.norm(dim=-1)**0.5)
         
         edge_attr = torch.cat([edge_length_emb, edge_attr], 1)
+
+        # --- Start of NOESY feature processing ---
+        num_nodes = data[key].num_nodes
+        noesy_features = torch.zeros(num_nodes, num_nodes, self.args.noesy_feat_dim, device=edge_attr.device)
+        if hasattr(data, 'noesy_peaks') and data.noesy_peaks.shape[0] > 0:
+            peaks = data.noesy_peaks
+            # For training, use the true/false label. For inference, this will be a placeholder.
+            # The 2 features are: [distance, is_true_label]
+            noesy_feat = peaks[:, [2, 5]]
+            res_i, res_j = peaks[:, 0].long(), peaks[:, 1].long()
+            noesy_features[res_i, res_j] = noesy_feat
+            noesy_features[res_j, res_i] = noesy_feat # Make symmetric
+
+        noesy_edge_features = noesy_features[src, dst]
+        edge_attr = torch.cat([edge_attr, noesy_edge_features], 1)
+        # --- End of NOESY feature processing ---
 
         edge_sh = o3.spherical_harmonics(self.sh_irreps, edge_vec, normalize=True, normalization='component').float()
         return node_attr, edge_index, edge_attr, edge_sh

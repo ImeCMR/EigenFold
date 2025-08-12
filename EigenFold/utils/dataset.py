@@ -58,6 +58,64 @@ class ResidueDataset(Dataset):
             pos, mask = ret
             pos[~mask,0] = data.sde.conditional(mask, pos[mask,0])
             data['resi'].pos = torch.tensor(pos[:,0]).float()
+
+            # --- Start of NOESY simulation logic ---
+            # Simplified atom mapping for ILV heavy atoms based on a typical atom14 representation
+            ILV_ATOM_IDX = {
+                'I': [4, 6, 7, 9],   # CB, CG1, CG2, CD1
+                'L': [4, 5, 9, 10],  # CB, CG, CD1, CD2
+                'V': [4, 6, 7]       # CB, CG1, CG2
+            }
+
+            noesy_peaks = []
+            try:
+                ilv_residues = [(i, aa) for i, aa in enumerate(row.seqres) if aa in 'ILV']
+                if len(ilv_residues) > 1:
+                    all_ilv_atoms = []  # List of (res_idx, atom_idx, coords)
+                    for res_idx, res_type in ilv_residues:
+                        if not mask[res_idx]: continue
+                        for atom_idx in ILV_ATOM_IDX[res_type]:
+                            if not np.isnan(pos[res_idx, atom_idx, 0]):
+                                all_ilv_atoms.append((res_idx, atom_idx, pos[res_idx, atom_idx]))
+
+                    if len(all_ilv_atoms) > 1:
+                        atom_identifiers = np.array([[ident[0], ident[1]] for ident in all_ilv_atoms])
+                        atom_coords = np.array([ident[2] for ident in all_ilv_atoms])
+                        dist_matrix = np.linalg.norm(atom_coords[:, None, :] - atom_coords[None, :, :], axis=-1)
+
+                        true_peak_indices = np.argwhere((dist_matrix > 0) & (dist_matrix < 6.0))
+                        true_peaks = []
+                        for i, j in true_peak_indices:
+                            if i >= j: continue
+                            res_i, atom_i_idx = atom_identifiers[i]
+                            res_j, atom_j_idx = atom_identifiers[j]
+                            dist = dist_matrix[i, j]
+                            true_peaks.append((res_i, res_j, dist, atom_i_idx, atom_j_idx, 1.0))
+
+                        false_peak_indices = np.argwhere(dist_matrix > 10.0)
+                        false_peaks = []
+                        num_false_to_generate = int(len(true_peaks) * 0.1) # 10% of true peaks
+
+                        if len(false_peak_indices) > num_false_to_generate > 0:
+                            selected_indices = np.random.choice(len(false_peak_indices), num_false_to_generate, replace=False)
+                            for k in selected_indices:
+                                i, j = false_peak_indices[k]
+                                if i >= j: continue
+                                res_i, atom_i_idx = atom_identifiers[i]
+                                res_j, atom_j_idx = atom_identifiers[j]
+                                fake_dist = np.random.uniform(2.0, 5.0)
+                                false_peaks.append((res_i, res_j, fake_dist, atom_i_idx, atom_j_idx, 0.0))
+
+                        noesy_peaks = true_peaks + false_peaks
+            except Exception as e:
+                logger.warning(f"Could not simulate NOESY for {pdb_path} due to {e}")
+                noesy_peaks = []
+
+            if noesy_peaks:
+                data.noesy_peaks = torch.tensor(noesy_peaks, dtype=torch.float32)
+            else:
+                data.noesy_peaks = torch.empty(0, 6, dtype=torch.float32)
+            # --- End of NOESY simulation logic ---
         
         embeddings_name = row.__getattr__(self.args.embeddings_key)
         embeddings_path = os.path.join(self.args.embeddings_dir, embeddings_name[:2], embeddings_name) + '.' + self.embeddings_suffix

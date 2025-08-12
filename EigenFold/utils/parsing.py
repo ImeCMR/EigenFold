@@ -49,6 +49,7 @@ def parse_train_args():
     parser.add_argument('--resi_ntpv', type=int, default=4)
     parser.add_argument('--resi_fc_dim', type=int, default=128)
     parser.add_argument('--resi_pos_emb_dim', type=int, default=16)
+    parser.add_argument('--noesy_feat_dim', type=int, default=2, help='Dimension of NOESY features to be added to edges.')
     
     parser.add_argument('--lin_nf', type=int, default=1)
     parser.add_argument('--lin_self', action='store_true', default=False)
@@ -76,6 +77,7 @@ def parse_train_args():
     parser.add_argument('--constant_dur', type=float, default=1e5) # 30 hrs
     parser.add_argument('--decay_dur', type=float, default=5e5) # 150 hrs
     parser.add_argument('--batch', type=int, default=1)
+    parser.add_argument('--noesy_loss_weight', type=float, default=0.1, help='Weight for the NOESY peak classification loss.')
     parser.add_argument('--print_freq', type=int, default=100)
     parser.add_argument('--max_len', type=int, default=1500)
     parser.add_argument('--cuda_diffuse', action='store_true', default=False)
