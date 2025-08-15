@@ -15,7 +15,7 @@ def train_splits():
     df = df[(df.seqlen >= 20) & (df.seqlen <= 256)]
     df = df[df.release_date < '2020-12-01']
     df['split'] = np.where(df.release_date < '2020-05-01', 'train', 'val')
-    df.to_csv('splits/limit256.csv')
+    df.to_csv('splits/limit256.csv', index=True, index_label='name')
     
 def apo_splits():
     df = pd.read_csv('data/pdb_chains.csv', index_col='name')
@@ -40,7 +40,7 @@ def apo_splits():
     df['holo'] = others
     del df['reference']; del df['saved']
     df = df[df.seqlen <= 750] 
-    df.to_csv('splits/apo.csv')
+    df.to_csv('splits/apo.csv', index=True, index_label='name')
 
     
 def codnas_splits():
@@ -71,7 +71,7 @@ def codnas_splits():
     df['other'] = others
     del df['reference']; del df['saved']
     df = df[df.seqlen <= 750] 
-    df.to_csv('splits/codnas.csv')
+    df.to_csv('splits/codnas.csv', index=True, index_label='name')
                          
 def cameo_splits():   
     df = pd.read_csv('data/pdb_chains.csv', index_col='name')
@@ -84,7 +84,7 @@ def cameo_splits():
     tosave = df.loc[tosave.index]
     del tosave['reference']; del tosave['saved']
     tosave = tosave[tosave.seqlen < 750]
-    tosave.to_csv('splits/cameo2022.csv')
+    tosave.to_csv('splits/cameo2022.csv', index=True, index_label='name')
     
 if __name__ == "__main__":
     train_splits()

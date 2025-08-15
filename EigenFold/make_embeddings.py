@@ -21,7 +21,7 @@ def main():
     Embeddings are stored as a dict: {"node_repr": <EDGE_REPR>, "edge_repr": <EDGE_REPR>} 
     """
     
-    splits = pd.read_csv(args.splits, engine='python').set_index("name").sort_values('seqlen')
+    splits = pd.read_csv(args.splits, index_col='name').sort_values('seqlen')
     
     if args.reference_only:
         splits = splits[(splits.index == splits.reference)]
