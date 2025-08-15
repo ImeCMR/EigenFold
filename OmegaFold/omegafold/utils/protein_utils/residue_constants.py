@@ -480,7 +480,7 @@ def _make_rigid_transformation_4x4(
     ey_normalized /= torch.linalg.norm(ey_normalized)
 
     # compute ez as cross product
-    eznorm = torch.cross(ex_normalized, ey_normalized)
+    eznorm = torch.linalg.cross(ex_normalized, ey_normalized)
     m = torch.stack([ex_normalized, ey_normalized, eznorm, translation]).T
     m = torch.cat([m, torch.tensor([[0., 0., 0., 1.]])], dim=0)
     return m
