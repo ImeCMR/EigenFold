@@ -43,7 +43,7 @@ def main():
             lookup[s] = rep
     df['reference'] = [lookup[s] for s in df.index]
     
-    df.to_csv(args.outcsv)    
+    df.to_csv(args.outcsv, index=True, index_label='name')
     
 def unpack_pdb(pdb_id):
     in_path = os.path.join(args.data, pdb_id.strip())
