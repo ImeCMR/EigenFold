@@ -13,6 +13,7 @@ from Bio.PDB.Polypeptide import Polypeptide
 from Bio import SeqIO
 from Bio.PDB.PDBExceptions import PDBConstructionWarning
 import warnings, tqdm, os, io
+from collections import defaultdict
 import pandas as pd
 import numpy as np
 from multiprocessing import Pool
@@ -29,9 +30,19 @@ def main():
     infos = list(tqdm.tqdm(__map__(unpack_pdb, manifest), total=len(manifest)))
     if args.num_workers > 1:
         p.__exit__(None, None, None)
-    info = []
-    for inf in infos: info.extend(inf)
-    df = pd.DataFrame(info).set_index('name')
+
+    # Aggregate results into a dictionary of lists for robust DataFrame creation
+    info_dict = defaultdict(list)
+    for info_list in infos:
+        for info in info_list:
+            for k, v in info.items():
+                info_dict[k].append(v)
+
+    if not info_dict:
+        print("No data processed. Exiting.")
+        return
+
+    df = pd.DataFrame(info_dict).set_index('name')
     
     reps = []
     lookup = {}
