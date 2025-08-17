@@ -31,27 +31,15 @@ def main():
     if args.num_workers > 1:
         p.__exit__(None, None, None)
 
-    # Aggregate results into a dictionary of lists for robust DataFrame creation
-    info_dict = defaultdict(list)
-    for info_list in infos:
-        for info in info_list:
-            for k, v in info.items():
-                info_dict[k].append(v)
+    # Flatten the list of lists into a single list of dictionaries
+    info_list = [item for sublist in infos for item in sublist]
 
-    if not info_dict:
+    if not info_list:
         print("No data processed. Exiting.")
         return
 
-    # Sanitize data types before creating DataFrame
-    numeric_cols = ['resolution', 'valid_alphas']
-    for col in numeric_cols:
-        info_dict[col] = [item if item is not None else np.nan for item in info_dict[col]]
-
-    str_cols = ['head', 'deposition_date', 'release_date', 'structure_method']
-    for col in str_cols:
-        info_dict[col] = [item if item is not None else '' for item in info_dict[col]]
-
-    df = pd.DataFrame(info_dict).set_index('name')
+    # Use a more robust, albeit slower, method to build the DataFrame
+    df = pd.DataFrame.from_records(info_list, index='name')
     
     reps = []
     lookup = {}
