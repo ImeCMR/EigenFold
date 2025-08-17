@@ -42,6 +42,15 @@ def main():
         print("No data processed. Exiting.")
         return
 
+    # Sanitize data types before creating DataFrame
+    numeric_cols = ['resolution', 'valid_alphas']
+    for col in numeric_cols:
+        info_dict[col] = [item if item is not None else np.nan for item in info_dict[col]]
+
+    str_cols = ['head', 'deposition_date', 'release_date', 'structure_method']
+    for col in str_cols:
+        info_dict[col] = [item if item is not None else '' for item in info_dict[col]]
+
     df = pd.DataFrame(info_dict).set_index('name')
     
     reps = []
