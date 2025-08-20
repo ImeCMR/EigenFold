@@ -20,7 +20,8 @@ from multiprocessing import Pool
 parser = PDBParser()
 
 def main():
-    manifest = open(args.manifest).readlines()
+    with open(args.manifest) as f:
+        manifest = [line for line in f.readlines() if line.strip()]
     if args.num_workers > 1:
         p = Pool(args.num_workers)
         p.__enter__()
