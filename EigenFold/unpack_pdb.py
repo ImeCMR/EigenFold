@@ -77,12 +77,12 @@ def unpack_pdb(pdb_id):
         name = pdb_id[3:8] + chain_id + '.pdb'
         info = process_chain(chain, name)
 
-        # Sanitize data types before returning from the worker process
+        # Correctly sanitize data types before returning from the worker process
         for key in ['head', 'deposition_date', 'release_date', 'structure_method']:
-            value = header.get(key, None)
-            info[key] = str(value) if value is not None else ''
+            value = header.get(key)
+            info[key] = str(value) if value is not None else ""
 
-        res_val = header.get('resolution', None)
+        res_val = header.get('resolution')
         info['resolution'] = float(res_val) if res_val is not None else np.nan
 
         info['seqres'] = seqres[chain_id]    
@@ -93,14 +93,14 @@ def process_chain(chain, name):
     info = {
         'name': name,
         'saved': False,
-        'valid_alphas': np.nan,
+        'valid_alphas': 0,
         'seq': ''
     }
     try:
         for resi in list(chain):
             if (resi.id[0] != ' ') or ('CA' not in resi.child_dict):
                 chain.detach_child(resi.id)            
-        info['valid_alphas'] = int(len(chain)) # Explicitly cast to python int
+        info['valid_alphas'] = int(len(chain)) # Cast to standard Python int
         info['seq'] = str(Polypeptide(chain).get_sequence())
         
         namedir = os.path.join(args.outdir, info['name'][:2])
