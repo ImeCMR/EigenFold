@@ -39,19 +39,23 @@ def main():
         print("No data processed. Exiting.")
         return
 
-    df = pd.DataFrame.from_records(info_list, index='name')
-    
-    reps = []
-    lookup = {}
-    for seq, sub_df in tqdm.tqdm(df.groupby('seqres')):
-        sub_df = sub_df.sort_values('release_date')
-        rep = sub_df.index[0]
-        reps.append(rep)
-        for s in sub_df.index:
-            lookup[s] = rep
-    df['reference'] = [lookup[s] for s in df.index]
-    
-    df.to_csv(args.outcsv, index=True, index_label='name')
+    # Manual CSV writing to bypass pandas constructor errors
+    print(f"Writing {len(info_list)} records to {args.outcsv}...")
+    try:
+        # Define header based on the keys of the first record, adding 'name' first
+        header = ['name'] + [key for key in info_list[0].keys() if key != 'name']
+
+        with open(args.outcsv, 'w') as f:
+            f.write(','.join(header) + '\n')
+            for info in info_list:
+                # Ensure the order of values matches the header
+                values = [info.get('name', '')] + [info.get(key, '') for key in header if key != 'name']
+                line = ','.join(map(str, values))
+                f.write(line + '\n')
+        print("CSV file successfully written.")
+    except Exception as e:
+        print(f"An error occurred during manual CSV writing: {e}")
+
     
 def unpack_pdb(pdb_id):
     in_path = os.path.join(args.data, pdb_id.strip())
