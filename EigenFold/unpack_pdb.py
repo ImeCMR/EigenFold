@@ -38,7 +38,6 @@ def main():
         print("No data processed. Exiting.")
         return
 
-    # Use a more robust, albeit slower, method to build the DataFrame
     df = pd.DataFrame.from_records(info_list, index='name')
     
     reps = []
@@ -76,8 +75,15 @@ def unpack_pdb(pdb_id):
         chain = model.child_dict[chain_id]
         name = pdb_id[3:8] + chain_id + '.pdb'
         info = process_chain(chain, name)
-        for key in ['head', 'resolution', 'deposition_date', 'release_date', 'structure_method']:
-            info[key] = header.get(key, None)
+
+        # Sanitize data types before returning from the worker process
+        for key in ['head', 'deposition_date', 'release_date', 'structure_method']:
+            value = header.get(key, None)
+            info[key] = str(value) if value is not None else ''
+
+        res_val = header.get('resolution', None)
+        info['resolution'] = float(res_val) if res_val is not None else np.nan
+
         info['seqres'] = seqres[chain_id]    
         infos.append(info)
     return infos
@@ -93,7 +99,7 @@ def process_chain(chain, name):
         for resi in list(chain):
             if (resi.id[0] != ' ') or ('CA' not in resi.child_dict):
                 chain.detach_child(resi.id)            
-        info['valid_alphas'] = len(chain)
+        info['valid_alphas'] = int(len(chain)) # Explicitly cast to python int
         info['seq'] = str(Polypeptide(chain).get_sequence())
         
         namedir = os.path.join(args.outdir, info['name'][:2])
