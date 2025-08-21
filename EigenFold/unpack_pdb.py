@@ -12,7 +12,7 @@ from Bio.PDB import PDBParser, PDBIO, Select
 from Bio.PDB.Polypeptide import Polypeptide
 from Bio import SeqIO
 from Bio.PDB.PDBExceptions import PDBConstructionWarning
-import warnings, tqdm, os, io
+import warnings, tqdm, os, io, csv
 from collections import defaultdict
 import pandas as pd
 import numpy as np
@@ -39,22 +39,36 @@ def main():
         print("No data processed. Exiting.")
         return
 
-    # Manual CSV writing to bypass pandas constructor errors
+    # Manual de-duplication to create the 'reference' column
+    print("Grouping chains by sequence to find representatives...")
+    seq_groups = defaultdict(list)
+    for info in info_list:
+        seq_groups[info['seqres']].append(info)
+
+    lookup = {}
+    for seq, info_group in tqdm.tqdm(seq_groups.items()):
+        # Sort by release date to find the first published structure
+        info_group.sort(key=lambda x: x.get('release_date', 'z')) # 'z' ensures None is last
+        rep_name = info_group[0]['name']
+        for info in info_group:
+            lookup[info['name']] = rep_name
+
+    for info in info_list:
+        info['reference'] = lookup[info['name']]
+
+    # Use the csv module for robust writing
     print(f"Writing {len(info_list)} records to {args.outcsv}...")
     try:
-        # Define header based on the keys of the first record, adding 'name' first
-        header = ['name'] + [key for key in info_list[0].keys() if key != 'name']
+        # Define header based on the keys of the first record.
+        header = list(info_list[0].keys())
 
-        with open(args.outcsv, 'w') as f:
-            f.write(','.join(header) + '\n')
-            for info in info_list:
-                # Ensure the order of values matches the header
-                values = [info.get('name', '')] + [info.get(key, '') for key in header if key != 'name']
-                line = ','.join(map(str, values))
-                f.write(line + '\n')
+        with open(args.outcsv, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=header)
+            writer.writeheader()
+            writer.writerows(info_list)
         print("CSV file successfully written.")
     except Exception as e:
-        print(f"An error occurred during manual CSV writing: {e}")
+        print(f"An error occurred during CSV writing: {e}")
 
     
 def unpack_pdb(pdb_id):
