@@ -55,10 +55,9 @@ bash download_pdb.sh ./data
 ```
 Prepare the chains dataframe and splits (approx 50 worker-hours)
 ```
-python unpack_pdb.py --num_workers [N]
-python make_splits.py
+python prepare_data.py --num_workers [N]
 ```
-This will also reproduce (and overwrite) `splits/{cameo2021.csv, codnas.csv, apo.csv}`.
+This single script now handles unpacking the PDBs, creating the master chain CSV, and creating all the final data splits.
 
 Run OmegaFold to make the embeddings, which can be parallelized across GPUs follows
 ```
