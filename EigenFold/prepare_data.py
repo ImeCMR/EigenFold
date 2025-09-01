@@ -79,7 +79,7 @@ def unpack_pdb(pdb_id):
             info[key] = str(value) if value is not None else ""
 
         res_val = header.get('resolution')
-        info['resolution'] = float(res_val) if res_val is not None else ''
+        info['resolution'] = float(res_val) if res_val is not None else None
 
         info['seqres'] = seqres[chain_id]
         infos.append(info)
