@@ -9,20 +9,19 @@ Please contact bjing@mit.edu with any comments or issues.
 ![eigenfold.png](eigenfold.png)
 
 ## Installation
-```
-pip install torch==1.11.0+cu113 -f https://download.pytorch.org/whl/torch_stable.html
-pip install torch-scatter torch-sparse torch-cluster torch-spline-conv torch-geometric -f https://data.pyg.org/whl/torch-1.11.0+cu113.html
-pip install e3nn pyyaml wandb biopython matplotlib pandas
-```
-We use `python=3.10.9`, but any reasonably recent version should be fine.
 
-Download the OmegaFold weights and install the modified OmegaFold repository.
-```
+The recommended way to install the dependencies is to use `conda` and the provided environment file.
+
+```bash
+# 1. Create and activate a new conda environment from the file
+conda env create -f environment.yml
+conda activate eigenfold
+
+# 2. Download the OmegaFold weights (required for make_embeddings.py)
 wget https://helixon.s3.amazonaws.com/release1.pt
-git clone https://github.com/bjing2016/OmegaFold
-pip install --no-deps -e OmegaFold
 ```
-Finally install the [LDDT](https://openstructure.org/lddt/) and [TMScore](https://zhanggroup.org/TM-score/) binaries and add them to your `PATH`.
+
+Finally, install the [LDDT](https://openstructure.org/lddt/) and [TMScore](https://zhanggroup.org/TM-score/) binaries and add them to your `PATH`.
 
 ## Paper results
 All results are obtained from sampled structures in `./pretrained_model` and reference structures in `./structures`. The numbers can be reproduced by running `single_structure_analysis.ipynb` and `ensemble_analysis.ipynb`. To reproduce the sampled structures themselves, first generate OmegaFold embeddings
@@ -55,9 +54,10 @@ bash download_pdb.sh ./data
 ```
 Prepare the chains dataframe and splits (approx 50 worker-hours)
 ```
-python prepare_data.py --num_workers [N]
+python unpack_pdb.py --num_workers [N]
+python make_splits.py
 ```
-This single script now handles unpacking the PDBs, creating the master chain CSV, and creating all the final data splits.
+This will also reproduce (and overwrite) `splits/{cameo2021.csv, codnas.csv, apo.csv}`.
 
 Run OmegaFold to make the embeddings, which can be parallelized across GPUs follows
 ```

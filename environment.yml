@@ -1,0 +1,21 @@
+name: eigenfold
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy<2.0
+  - pandas
+  - pytorch::pytorch=1.11.0
+  - pytorch::pytorch-cuda=11.3
+  - pyg
+  - e3nn
+  - pyyaml
+  - wandb
+  - biopython
+  - matplotlib
+  - tqdm
+  - pip
+  - pip:
+    - git+https://github.com/bjing2016/OmegaFold.git#egg=omegafold&subdirectory=OmegaFold
