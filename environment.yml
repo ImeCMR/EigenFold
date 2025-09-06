@@ -16,6 +16,8 @@ dependencies:
   - biopython
   - matplotlib
   - tqdm
+  - h5py
+  - scipy
   - pip
   - pip:
     - git+https://github.com/bjing2016/OmegaFold.git#egg=omegafold&subdirectory=OmegaFold

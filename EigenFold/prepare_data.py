@@ -50,7 +50,7 @@ def process_chain(chain, name):
     return info
 
 def unpack_pdb(pdb_id):
-    in_path = os.path.join(args.data, pdb_id.strip())
+    in_path = os.path.join(args.data, pdb_id.strip() + '.pdb')
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=PDBConstructionWarning)
         try:
@@ -68,9 +68,8 @@ def unpack_pdb(pdb_id):
 
     infos = []
     for chain_id in model.child_dict:
-        if chain_id not in seqres: continue
         chain = model.child_dict[chain_id]
-        name = pdb_id[3:8] + chain_id + '.pdb'
+        name = pdb_id.strip() + '.' + chain_id + '.pdb'
         info = process_chain(chain, name)
 
         # Correctly sanitize data types
@@ -81,7 +80,10 @@ def unpack_pdb(pdb_id):
         res_val = header.get('resolution')
         info['resolution'] = float(res_val) if res_val is not None else None
 
-        info['seqres'] = seqres[chain_id]
+        if chain_id in seqres:
+            info['seqres'] = seqres[chain_id]
+        else:
+            info['seqres'] = ''
         infos.append(info)
     return infos
 
@@ -127,7 +129,9 @@ def create_master_dataframe(info_list):
     seq_groups = defaultdict(list)
     # We need to iterate through the DataFrame to use its indexing
     for name, row in df.iterrows():
-        seq_groups[row['seqres']].append(row.to_dict())
+        d = row.to_dict()
+        d['name'] = name
+        seq_groups[row['seqres']].append(d)
 
     lookup = {}
     for seq, info_group in tqdm.tqdm(seq_groups.items()):
@@ -241,9 +245,9 @@ def create_final_splits(master_df):
     # Create a copy to avoid SettingWithCopyWarning
     df_copy = master_df.copy()
     _train_split(df_copy)
-    _apo_split(df_copy)
-    _codnas_split(df_copy)
-    _cameo_split(df_copy)
+    # _apo_split(df_copy)
+    # _codnas_split(df_copy)
+    # _cameo_split(df_copy)
     print("All data splits created successfully.")
 
 def main():
