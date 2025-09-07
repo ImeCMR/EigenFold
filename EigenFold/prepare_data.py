@@ -21,7 +21,7 @@ class NotDisordered(Select):
     def accept_atom(self, atom):
         return (not atom.is_disordered()) or (atom.get_altloc() == "A")
 
-def process_chain(chain, name):
+def process_chain(chain, name, pdb_id):
     info = {
         'name': name,
         'saved': False,
@@ -35,9 +35,12 @@ def process_chain(chain, name):
         info['valid_alphas'] = int(len(chain))
         info['seq'] = str(Polypeptide(chain).get_sequence())
 
-        namedir = os.path.join(args.outdir, info['name'][:2])
+        pdb_id_no_ext = os.path.splitext(pdb_id)[0]
+        if pdb_id_no_ext.startswith('pdb'):
+            pdb_id_no_ext = pdb_id_no_ext[3:]
+        namedir = os.path.join(args.outdir, pdb_id_no_ext[:2])
         if not os.path.exists(namedir): os.makedirs(namedir, exist_ok=True)
-        out_path = os.path.join(namedir, info['name'])
+        out_path = os.path.join(namedir, name)
 
         pdbio = PDBIO()
         pdbio.set_structure(chain)
@@ -50,7 +53,7 @@ def process_chain(chain, name):
     return info
 
 def unpack_pdb(pdb_id):
-    in_path = os.path.join(args.data, pdb_id.strip() + '.pdb')
+    in_path = os.path.join(args.data, pdb_id.strip())
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=PDBConstructionWarning)
         try:
@@ -69,8 +72,11 @@ def unpack_pdb(pdb_id):
     infos = []
     for chain_id in model.child_dict:
         chain = model.child_dict[chain_id]
-        name = pdb_id.strip() + '.' + chain_id + '.pdb'
-        info = process_chain(chain, name)
+        pdb_id_no_ext = os.path.splitext(pdb_id)[0]
+        if pdb_id_no_ext.startswith('pdb'):
+            pdb_id_no_ext = pdb_id_no_ext[3:]
+        name = pdb_id_no_ext + '.' + chain_id + '.pdb'
+        info = process_chain(chain, name, pdb_id.strip())
 
         # Correctly sanitize data types
         for key in ['head', 'deposition_date', 'release_date', 'structure_method']:
