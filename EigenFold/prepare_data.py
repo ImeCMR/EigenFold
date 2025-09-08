@@ -53,8 +53,6 @@ def process_chain(chain, name, pdb_id):
     return info
 
 def unpack_pdb(pdb_id):
-    start_time = time.time()
-    print(f"[{pdb_id}] Starting processing.")
     in_path = os.path.join(args.data, pdb_id.strip())
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=PDBConstructionWarning)
@@ -86,16 +84,24 @@ def unpack_pdb(pdb_id):
             info[key] = str(value) if value is not None else ""
 
         res_val = header.get('resolution')
-        info['resolution'] = float(res_val) if res_val is not None else None
+        info['resolution'] = float(res_val) if res_val is not None else 0.0
 
         if chain_id in seqres:
             info['seqres'] = seqres[chain_id]
         else:
             info['seqres'] = ''
+
+        # Explicitly cast all values to standard python types
+        for k, v in info.items():
+            if isinstance(v, np.integer):
+                info[k] = int(v)
+            elif isinstance(v, np.floating):
+                info[k] = float(v)
+            elif isinstance(v, np.ndarray):
+                info[k] = v.tolist()
+
         infos.append(info)
 
-    end_time = time.time()
-    print(f"[{pdb_id}] Finished processing in {end_time - start_time:.2f} seconds. Found {len(infos)} chains.")
     return infos
 
 import time
@@ -138,10 +144,6 @@ def create_master_dataframe(info_list):
         return None
 
     print("Creating master DataFrame...")
-    # Use from_records for robust creation
-    print("info_list content:")
-    for item in info_list:
-        print(item)
 
     data = defaultdict(list)
     for info in info_list:
