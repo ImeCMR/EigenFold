@@ -139,7 +139,17 @@ def create_master_dataframe(info_list):
 
     print("Creating master DataFrame...")
     # Use from_records for robust creation
-    df = pd.DataFrame.from_records(info_list, index='name')
+    print("info_list content:")
+    for item in info_list:
+        print(item)
+
+    data = defaultdict(list)
+    for info in info_list:
+        for key, value in info.items():
+            data[key].append(value)
+
+    df = pd.DataFrame(data)
+    df = df.set_index('name')
 
     # Manual de-duplication to create the 'reference' column
     print("Grouping chains by sequence to find representatives...")
