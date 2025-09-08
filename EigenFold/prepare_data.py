@@ -53,6 +53,8 @@ def process_chain(chain, name, pdb_id):
     return info
 
 def unpack_pdb(pdb_id):
+    start_time = time.time()
+    print(f"[{pdb_id}] Starting processing.")
     in_path = os.path.join(args.data, pdb_id.strip())
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=PDBConstructionWarning)
@@ -91,7 +93,12 @@ def unpack_pdb(pdb_id):
         else:
             info['seqres'] = ''
         infos.append(info)
+
+    end_time = time.time()
+    print(f"[{pdb_id}] Finished processing in {end_time - start_time:.2f} seconds. Found {len(infos)} chains.")
     return infos
+
+import time
 
 def unpack_and_clean_pdbs():
     """
@@ -101,6 +108,10 @@ def unpack_and_clean_pdbs():
     print("Stage 1: Unpacking and cleaning PDB files...")
     with open(args.manifest) as f:
         manifest = [line for line in f.readlines() if line.strip()]
+
+    if args.limit:
+        manifest = manifest[:args.limit]
+        print(f"Limiting to {args.limit} PDBs.")
 
     info_list = []
     if args.num_workers > 1:
@@ -270,6 +281,7 @@ if __name__ == "__main__":
     arg_parser.add_argument('--outdir', type=str, default='./data/pdb_chains')
     arg_parser.add_argument('--outcsv', type=str, default='./data/pdb_chains.csv')
     arg_parser.add_argument('--num_workers', type=int, default=15)
+    arg_parser.add_argument('--limit', type=int, default=None, help='Limit the number of PDBs to process.')
     args = arg_parser.parse_args()
 
     main()
