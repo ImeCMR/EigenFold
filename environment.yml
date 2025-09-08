@@ -1,19 +1,22 @@
 name: eigenfold
 channels:
+  - pyg
   - pytorch
   - conda-forge
   - defaults
+  - nvidia
+  - bioconda
 dependencies:
   - python=3.10
   - numpy<2.0
-  - pandas
+  - pandas=1.4.2
   - pytorch::pytorch=1.11.0
   - pytorch::pytorch-cuda=11.3
   - pyg
   - e3nn
   - pyyaml
   - wandb
-  - biopython
+  - biopython=1.79
   - matplotlib
   - tqdm
   - h5py

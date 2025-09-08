@@ -23,6 +23,8 @@ wget https://helixon.s3.amazonaws.com/release1.pt
 
 Finally, install the [LDDT](https://openstructure.org/lddt/) and [TMScore](https://zhanggroup.org/TM-score/) binaries and add them to your `PATH`.
 
+**Note:** If you are experiencing issues with the `prepare_data.py` script, it is highly recommended to create a fresh conda environment using the provided `environment.yml` file. This will ensure that you have the correct versions of all the dependencies and will likely resolve any `TypeError` issues you may be encountering.
+
 ## Paper results
 All results are obtained from sampled structures in `./pretrained_model` and reference structures in `./structures`. The numbers can be reproduced by running `single_structure_analysis.ipynb` and `ensemble_analysis.ipynb`. To reproduce the sampled structures themselves, first generate OmegaFold embeddings
 ```
